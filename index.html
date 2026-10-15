@@ -214,7 +214,7 @@
 
       const prompt = `Analisis objek fizikal yang berada di tengah bingkai gambar ini. Balas HANYA dalam format JSON dengan struktur: {"nama": "nama objek ringkas", "kategori": "kategori", "info": "fakta atau kegunaan utama objek dalam 1-2 ayat ringkas Bahasa Melayu"}`;
 
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+     const endpoint = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
       try {
         const response = await fetch(endpoint, {
