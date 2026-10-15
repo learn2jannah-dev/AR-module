@@ -207,7 +207,7 @@
       try {
         // Menggunakan SDK rasmi Google
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const model = genAI.getGenerativeModel({ models/gemini-2.5-flash });
 
         const prompt = "Kenal pasti objek di tengah gambar ini. Berikan respons HANYA dalam JSON sah dengan format: {\"nama\": \"nama objek ringkas\", \"kategori\": \"kategori\", \"info\": \"penerangan ringkas 1-2 ayat\"}";
 
