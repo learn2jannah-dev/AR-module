@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Gemini WebAR Module</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body, html { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    
+    #camera-feed {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      z-index: 1;
+    }
+
+    #ar-viewport {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 2;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: center;
+      padding: 24px;
+    }
+
+    /* Bidikan / Retikel AR */
+    .ar-reticle {
+      position: absolute;
+      top: 45%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 180px; height: 180px;
+      border: 2px dashed rgba(255, 255, 255, 0.6);
+      border-radius: 16px;
+      transition: all 0.3s ease;
+    }
+
+    .scanning {
+      border-color: #00e5ff;
+      box-shadow: 0 0 20px rgba(0, 229, 255, 0.5);
+      animation: pulse 1.5s infinite alternate;
+    }
+
+    @keyframes pulse {
+      from { transform: translate(-50%, -50%) scale(0.98); opacity: 0.7; }
+      to { transform: translate(-50%, -50%) scale(1.05); opacity: 1; }
+    }
+
+    /* Kad Maklumat AR Terapung */
+    #ar-card {
+      position: absolute;
+      top: 15%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 85%;
+      max-width: 360px;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 14px;
+      padding: 16px;
+      color: #fff;
+      display: none;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    }
+
+    #ar-card h3 {
+      font-size: 1.1rem;
+      color: #38bdf8;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    #ar-card p {
+      font-size: 0.9rem;
+      line-height: 1.4;
+      color: #e2e8f0;
+      margin-bottom: 4px;
+    }
+
+    /* Panel Kawalan Bawah */
+    .controls {
+      pointer-events: auto;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .api-container {
+      width: 100%;
+      max-width: 320px;
+    }
+
+    .api-input {
+      width: 100%;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      background: rgba(0, 0, 0, 0.6);
+      color: #fff;
+      font-size: 0.8rem;
+    }
+
+    .scan-btn {
+      background: #0284c7;
+      color: #fff;
+      border: none;
+      padding: 14px 28px;
+      border-radius: 30px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 4px 15px rgba(2, 132, 199, 0.4);
+    }
+
+    .scan-btn:active { transform: scale(0.96); }
+    .scan-btn:disabled { background: #475569; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+
+  <!-- Suapan Kamera Fizikal -->
+  <video id="camera-feed" autoplay playsinline muted></video>
+
+  <!-- Lapisan Paparan AR -->
+  <div id="ar-viewport">
+    <!-- Kad Data AR Terapung -->
+    <div id="ar-card">
+      <h3 id="obj-name">Menganalisis...</h3>
+      <p id="obj-category"></p>
+      <p id="obj-desc"></p>
+    </div>
+
+    <!-- Retikel Fokus -->
+    <div class="ar-reticle" id="reticle"></div>
+
+    <!-- Kawalan Pengguna -->
+    <div class="controls">
+      <div class="api-container">
+        <input type="password" id="api-key" class="api-input" placeholder="Tampal Gemini API Key di sini...">
+      </div>
+      <button class="scan-btn" id="scan-trigger" onclick="runARAnalysis()">
+        <span>Imbas Objek AR</span>
+      </button>
+    </div>
+  </div>
+
+  <script>
+    const video = document.getElementById('camera-feed');
+    const reticle = document.getElementById('reticle');
+    const arCard = document.getElementById('ar-card');
+    const scanBtn = document.getElementById('scan-trigger');
+    const objName = document.getElementById('obj-name');
+    const objCategory = document.getElementById('obj-category');
+    const objDesc = document.getElementById('obj-desc');
+
+    // 1. Mulakan Akses Kamera Telefon Pintar
+    async function initCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        });
+        video.srcObject = stream;
+      } catch (err) {
+        alert("Akses kamera ditolak atau tidak disokong: " + err.message);
+      }
+    }
+
+    // 2. Ekstrak Bingkai Semasa ke Format Base64
+    function captureFrame() {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+    }
+
+    // 3. Panggil Gemini Flash Vision API
+    async function runARAnalysis() {
+      const apiKey = document.getElementById('api-key').value.trim();
+      if (!apiKey) {
+        alert("Sila masukkan Gemini API Key terlebih dahulu.");
+        return;
+      }
+
+      const base64Data = captureFrame();
+      
+      // Kemas kini UI ke fasa mengimbas
+      scanBtn.disabled = true;
+      scanBtn.innerText = "Memproses...";
+      reticle.classList.add('scanning');
+      arCard.style.display = 'block';
+      objName.innerText = "Gemini sedang memproses...";
+      objCategory.innerText = "";
+      objDesc.innerText = "Mengekstrak visual objek dalam retikel...";
+
+      const prompt = `Analisis objek fizikal yang berada di tengah bingkai gambar ini. Balas HANYA dalam format JSON dengan struktur: {"nama": "nama objek ringkas", "kategori": "kategori", "info": "fakta atau kegunaan utama objek dalam 1-2 ayat ringkas Bahasa Melayu"}`;
+
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                { text: prompt },
+                { inlineData: { mimeType: "image/jpeg", data: base64Data } }
+              ]
+            }],
+            generationConfig: {
+              responseMimeType: "application/json"
+            }
+          })
+        });
+
+        const data = await response.json();
+        
+        if (data.error) {
+          throw new Error(data.error.message);
+        }
+
+        const parsedResult = JSON.parse(data.candidates[0].content.parts[0].text);
+
+        // Kemas kini kad maklumat AR
+        objName.innerText = parsedResult.nama || "Objek Dikesan";
+        objCategory.innerText = "Kategori: " + (parsedResult.kategori || "-");
+        objDesc.innerText = parsedResult.info || "";
+      } catch (err) {
+        objName.innerText = "Ralat Imbasan";
+        objCategory.innerText = "";
+        objDesc.innerText = err.message;
+      } finally {
+        scanBtn.disabled = false;
+        scanBtn.innerText = "Imbas Objek AR";
+        reticle.classList.remove('scanning');
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', initCamera);
+  </script>
+</body>
+</html>
